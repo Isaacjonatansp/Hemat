@@ -28,7 +28,7 @@ interface TransactionDao {
     fun count(): Flow<Int>
 
     @Query("DELETE FROM transactions")
-    suspend fun clear()
+    suspend fun clear(): Int
 }
 
 @Dao
@@ -40,7 +40,7 @@ interface CategoryDao {
     suspend fun insert(item: CategoryEntity)
 
     @Query("DELETE FROM categories WHERE name = :name")
-    suspend fun delete(name: String)
+    suspend fun delete(name: String): Int
 }
 
 @Dao
@@ -52,5 +52,5 @@ interface BudgetDao {
     suspend fun upsert(item: BudgetEntity)
 
     @Query("DELETE FROM budgets WHERE category = :category")
-    suspend fun delete(category: String)
+    suspend fun delete(category: String): Int
 }
