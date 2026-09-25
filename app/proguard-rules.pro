@@ -1,0 +1,2 @@
+-keep class com.hemat.app.data.local.** { *; }
+-dontwarn androidx.room.**
