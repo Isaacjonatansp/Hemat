@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -32,15 +33,18 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DocumentScanner
@@ -48,9 +52,11 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Stars
@@ -87,6 +93,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -105,6 +112,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import com.hemat.app.data.local.BudgetEntity
 import com.hemat.app.data.local.TransactionEntity
 import com.hemat.app.ui.theme.HematTheme
 import com.hemat.app.util.ReceiptScanner
@@ -113,13 +121,14 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 @Composable
 fun AppRoot(vm: HomeViewModel) {
     val lang by vm.lang.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
-    val titles = listOf(T.s(lang, "home"), T.s(lang, "add"), T.s(lang, "budget"), T.s(lang, "setting"))
-    val icons = listOf(Icons.Filled.Home, Icons.Filled.Add, Icons.Filled.PieChart, Icons.Filled.Settings)
+    val titles = listOf(T.s(lang, "home"), T.s(lang, "add"), T.s(lang, "budget"), T.s(lang, "ai_chat"), T.s(lang, "setting"))
+    val icons = listOf(Icons.Filled.Home, Icons.Filled.Add, Icons.Filled.PieChart, Icons.Default.SmartToy, Icons.Filled.Settings)
 
     Scaffold(
         topBar = { SimpleBar(titles[tab]) },
@@ -149,6 +158,7 @@ fun AppRoot(vm: HomeViewModel) {
                 0 -> HomeScreen(vm, lang)
                 1 -> AddScreen(vm, lang) { tab = 0 }
                 2 -> BudgetScreen(vm, lang)
+                3 -> ChatAiScreen(vm, lang)
                 else -> SettingsScreen(vm, lang)
             }
         }
@@ -348,18 +358,25 @@ private fun HomeScreen(vm: HomeViewModel, lang: String) {
     val balance = sumIn - sumOut
 
     var editingTx by remember { mutableStateOf<TransactionEntity?>(null) }
-    var selectedCategoryFilter by remember { mutableStateOf<String?>(null) }
+    var selectedCategoriesFilter by remember { mutableStateOf<Set<String>>(emptySet()) }
     var sortOrder by remember { mutableStateOf("newest") } // newest, oldest, highest, lowest, category
     var showSortMenu by remember { mutableStateOf(false) }
 
     val availableCategories = remember(monthTx) {
-        monthTx.map { it.category }.distinct().sorted()
+        monthTx.flatMap { it.category.split(",") }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
     }
 
-    val filteredTx = remember(monthTx, selectedCategoryFilter, sortOrder) {
+    val filteredTx = remember(monthTx, selectedCategoriesFilter, sortOrder) {
         var list = monthTx
-        if (selectedCategoryFilter != null) {
-            list = list.filter { it.category == selectedCategoryFilter }
+        if (selectedCategoriesFilter.isNotEmpty()) {
+            list = list.filter { tx ->
+                val txCats = tx.category.split(",").map { it.trim() }
+                txCats.any { it in selectedCategoriesFilter }
+            }
         }
         when (sortOrder) {
             "oldest" -> list.sortedBy { it.timestamp }
@@ -629,30 +646,60 @@ private fun HomeScreen(vm: HomeViewModel, lang: String) {
                     }
                 }
 
-                // Category Filter Chips
+                // Category Filter Chips (Multi-Select)
                 if (availableCategories.isNotEmpty()) {
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        item {
-                            FilterChip(
-                                selected = selectedCategoryFilter == null,
-                                onClick = { selectedCategoryFilter = null },
-                                label = { Text(T.s(lang, "all_categories"), style = MaterialTheme.typography.labelSmall) },
-                                shape = RoundedCornerShape(10.dp)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                if (selectedCategoriesFilter.isEmpty()) T.s(lang, "all_categories")
+                                else "${T.s(lang, "selected_categories")} (${selectedCategoriesFilter.size})",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
                             )
+                            if (selectedCategoriesFilter.isNotEmpty()) {
+                                TextButton(
+                                    onClick = { selectedCategoriesFilter = emptySet() },
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(T.s(lang, "clear"), style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
                         }
-                        items(availableCategories) { cat ->
-                            FilterChip(
-                                selected = selectedCategoryFilter == cat,
-                                onClick = { selectedCategoryFilter = if (selectedCategoryFilter == cat) null else cat },
-                                label = { Text(cat, style = MaterialTheme.typography.labelSmall) },
-                                leadingIcon = {
-                                    Icon(getCategoryIcon(cat), contentDescription = null, modifier = Modifier.size(14.dp))
-                                },
-                                shape = RoundedCornerShape(10.dp)
-                            )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            item {
+                                FilterChip(
+                                    selected = selectedCategoriesFilter.isEmpty(),
+                                    onClick = { selectedCategoriesFilter = emptySet() },
+                                    label = { Text(T.s(lang, "all_categories"), style = MaterialTheme.typography.labelSmall) },
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                            }
+                            items(availableCategories) { cat ->
+                                val isSelected = cat in selectedCategoriesFilter
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        selectedCategoriesFilter = if (isSelected) {
+                                            selectedCategoriesFilter - cat
+                                        } else {
+                                            selectedCategoriesFilter + cat
+                                        }
+                                    },
+                                    label = { Text(cat, style = MaterialTheme.typography.labelSmall) },
+                                    leadingIcon = {
+                                        Icon(getCategoryIcon(cat), contentDescription = null, modifier = Modifier.size(14.dp))
+                                    },
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -903,7 +950,7 @@ private fun AddScreen(vm: HomeViewModel, lang: String, onSaved: () -> Unit) {
     val cats by vm.categories.collectAsState()
     var amountText by remember { mutableStateOf("") }
     var isIn by remember { mutableStateOf(false) }
-    var picked by remember { mutableStateOf<String?>(null) }
+    var pickedCategories by remember { mutableStateOf<Set<String>>(emptySet()) }
     var note by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
 
@@ -932,7 +979,7 @@ private fun AddScreen(vm: HomeViewModel, lang: String, onSaved: () -> Unit) {
                 if (res != null && res.amount > 0) {
                     amountText = res.amount.toString()
                     isIn = false // Struk belanja selalu Pengeluaran (OUT)
-                    picked = res.categorySuggestion
+                    pickedCategories = setOf(res.categorySuggestion)
                     note = if (res.merchantName.isNotBlank()) "Struk ${res.merchantName}" else "Struk Belanja"
                     scanMessage = "${T.s(lang, "scan_success")} ${res.amount.rp()} • ${T.s(lang, "auto_deleted")}"
                 } else {
@@ -958,7 +1005,7 @@ private fun AddScreen(vm: HomeViewModel, lang: String, onSaved: () -> Unit) {
                 if (res != null && res.amount > 0) {
                     amountText = res.amount.toString()
                     isIn = false
-                    picked = res.categorySuggestion
+                    pickedCategories = setOf(res.categorySuggestion)
                     note = if (res.merchantName.isNotBlank()) "Struk ${res.merchantName}" else "Struk Belanja"
                     scanMessage = "${T.s(lang, "scan_success")} ${res.amount.rp()}"
                 } else {
@@ -1097,13 +1144,13 @@ private fun AddScreen(vm: HomeViewModel, lang: String, onSaved: () -> Unit) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             SegmentedButton(
                 selected = !isIn,
-                onClick = { isIn = false; picked = null },
+                onClick = { isIn = false; pickedCategories = emptySet() },
                 shape = SegmentedButtonDefaults.itemShape(0, 2),
                 label = { Text(T.s(lang, "expense"), fontWeight = FontWeight.SemiBold) }
             )
             SegmentedButton(
                 selected = isIn,
-                onClick = { isIn = true; picked = null },
+                onClick = { isIn = true; pickedCategories = emptySet() },
                 shape = SegmentedButtonDefaults.itemShape(1, 2),
                 label = { Text(T.s(lang, "income"), fontWeight = FontWeight.SemiBold) }
             )
@@ -1133,12 +1180,23 @@ private fun AddScreen(vm: HomeViewModel, lang: String, onSaved: () -> Unit) {
             )
         }
 
-        // Category Section
-        Text(
-            T.s(lang, "category"),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
+        // Category Section (Multi-Select)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                T.s(lang, "category"),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                T.s(lang, "multi_cat_hint"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -1151,9 +1209,12 @@ private fun AddScreen(vm: HomeViewModel, lang: String, onSaved: () -> Unit) {
                 ) {
                     row.forEach { c ->
                         val icon = getCategoryIcon(c)
+                        val isSelected = pickedCategories.contains(c)
                         FilterChip(
-                            selected = picked == c,
-                            onClick = { picked = c },
+                            selected = isSelected,
+                            onClick = {
+                                pickedCategories = if (isSelected) pickedCategories - c else pickedCategories + c
+                            },
                             label = { Text(c, fontWeight = FontWeight.Medium) },
                             leadingIcon = {
                                 Icon(
@@ -1190,15 +1251,15 @@ private fun AddScreen(vm: HomeViewModel, lang: String, onSaved: () -> Unit) {
         Button(
             onClick = {
                 val amount = amountText.toLongOrNull() ?: 0L
-                val cat = picked
-                if (amount <= 0 || cat == null) {
+                if (amount <= 0 || pickedCategories.isEmpty()) {
                     error = amount <= 0
                     return@Button
                 }
+                val cat = pickedCategories.joinToString(", ")
                 vm.add(amount, kind, cat, note.trim())
                 amountText = ""
                 note = ""
-                picked = null
+                pickedCategories = emptySet()
                 onSaved()
             },
             shape = RoundedCornerShape(16.dp),
@@ -1573,6 +1634,369 @@ private fun SettingsScreen(vm: HomeViewModel, lang: String) {
                 }
             }
         )
+    }
+}
+
+// ---------- CHAT AI ASSISTANT ----------
+
+data class ChatMessage(
+    val id: String = UUID.randomUUID().toString(),
+    val isAi: Boolean,
+    val text: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatAiScreen(vm: HomeViewModel, lang: String) {
+    val monthTx by vm.monthTx.collectAsState()
+    val sumIn by vm.sumIn.collectAsState()
+    val sumOut by vm.sumOut.collectAsState()
+    val budgets by vm.budgets.collectAsState()
+    val monthLabel by vm.monthLabel.collectAsState()
+
+    val messages = remember {
+        mutableStateListOf(
+            ChatMessage(
+                isAi = true,
+                text = T.s(lang, "ai_welcome")
+            )
+        )
+    }
+
+    var inputText by remember { mutableStateOf("") }
+    val listState = rememberScrollState()
+
+    val quickPrompts = if (lang == "id") listOf(
+        "💡 Total pengeluaran bulan ini?",
+        "📊 Kategori mana yang paling boros?",
+        "💰 Sisa saldo & analisis budget",
+        "🔍 Tips hemat untuk keuangan saya"
+    ) else listOf(
+        "💡 Total expenses this month?",
+        "📊 Which category spends the most?",
+        "💰 Balance & budget check",
+        "🔍 Saving tips for my finances"
+    )
+
+    fun sendPrompt(userText: String) {
+        if (userText.isBlank()) return
+        messages.add(ChatMessage(isAi = false, text = userText.trim()))
+        inputText = ""
+
+        val aiResponse = generateAiFinancialResponse(
+            prompt = userText,
+            monthTx = monthTx,
+            sumIn = sumIn,
+            sumOut = sumOut,
+            budgets = budgets,
+            monthLabel = monthLabel,
+            lang = lang
+        )
+        messages.add(ChatMessage(isAi = true, text = aiResponse))
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
+    ) {
+        // AI Header Card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.SmartToy,
+                        contentDescription = "AI Assistant",
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        T.s(lang, "ai_assistant_title"),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Text(
+                        T.s(lang, "ai_subtitle"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    )
+                }
+                IconButton(onClick = {
+                    messages.clear()
+                    messages.add(ChatMessage(isAi = true, text = T.s(lang, "ai_welcome")))
+                }) {
+                    Icon(
+                        Icons.Default.CleaningServices,
+                        contentDescription = T.s(lang, "ai_clear_chat"),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+
+        // Quick Suggestion Chips
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(quickPrompts) { prompt ->
+                FilterChip(
+                    selected = false,
+                    onClick = { sendPrompt(prompt) },
+                    label = { Text(prompt, style = MaterialTheme.typography.labelSmall) },
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Chat Message List
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(listState)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            messages.forEach { msg ->
+                ChatBubble(msg)
+            }
+        }
+
+        // Input Field Bar
+        Surface(
+            tonalElevation = 6.dp,
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = { inputText = it },
+                    placeholder = { Text(T.s(lang, "ai_placeholder")) },
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send)
+                )
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = { sendPrompt(inputText) },
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary)
+                        .size(48.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = T.s(lang, "ai_send"),
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatBubble(msg: ChatMessage) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (msg.isAi) Arrangement.Start else Arrangement.End
+    ) {
+        if (msg.isAi) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+        }
+
+        Surface(
+            shape = RoundedCornerShape(
+                topStart = 16.dp,
+                topEnd = 16.dp,
+                bottomStart = if (msg.isAi) 4.dp else 16.dp,
+                bottomEnd = if (msg.isAi) 16.dp else 4.dp
+            ),
+            color = if (msg.isAi) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primary,
+            modifier = Modifier.widthIn(max = 280.dp)
+        ) {
+            Text(
+                text = msg.text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (msg.isAi) MaterialTheme.colorScheme.onSurfaceVariant else Color.White,
+                modifier = Modifier.padding(12.dp)
+            )
+        }
+    }
+}
+
+private fun generateAiFinancialResponse(
+    prompt: String,
+    monthTx: List<TransactionEntity>,
+    sumIn: Long,
+    sumOut: Long,
+    budgets: List<BudgetEntity>,
+    monthLabel: String,
+    lang: String
+): String {
+    val id = lang == "id"
+    val p = prompt.lowercase(Locale.ROOT)
+    val balance = sumIn - sumOut
+
+    val outTx = monthTx.filter { it.kind == "OUT" }
+    val categoryTotals = outTx.flatMap { tx ->
+        val cats = tx.category.split(",").map { it.trim() }
+        val splitAmount = if (cats.isNotEmpty()) tx.amount / cats.size else tx.amount
+        cats.map { c -> c to splitAmount }
+    }.groupBy({ it.first }, { it.second }).mapValues { it.value.sum() }
+
+    val topCategory = categoryTotals.maxByOrNull { it.value }
+
+    return when {
+        p.contains("total") || p.contains("pengeluaran") || p.contains("expense") || p.contains("masuk") || p.contains("income") -> {
+            if (id) {
+                """
+                📊 Laporan Keuangan ($monthLabel):
+                • Total Pemasukan: ${sumIn.rp()}
+                • Total Pengeluaran: ${sumOut.rp()}
+                • Sisa Saldo Bulan Ini: ${balance.rp()}
+
+                ${if (balance >= 0) "✅ Arus kas positif! Pertahankan pola belanja ini." else "⚠️ Pengeluaran melebihi pemasukan bulan ini!"}
+                """.trimIndent()
+            } else {
+                """
+                📊 Financial Report ($monthLabel):
+                • Total Income: ${sumIn.rp()}
+                • Total Expenses: ${sumOut.rp()}
+                • Remaining Balance: ${balance.rp()}
+
+                ${if (balance >= 0) "✅ Positive cash flow! Keep it up." else "⚠️ Expenses exceed income this month!"}
+                """.trimIndent()
+            }
+        }
+
+        p.contains("boros") || p.contains("kategori") || p.contains("paling") || p.contains("category") -> {
+            if (topCategory != null) {
+                val topPct = if (sumOut > 0) (topCategory.value * 100 / sumOut) else 0
+                if (id) {
+                    """
+                    📊 Analisis Kategori Terboros ($monthLabel):
+                    • Kategori Terbesar: ${topCategory.key}
+                    • Total Terpakai: ${topCategory.value.rp()} ($topPct% dari pengeluaran)
+
+                    💡 Saran AI: Coba buat budget batasan khusus untuk kategori ${topCategory.key} di menu Budget agar lebih terkontrol!
+                    """.trimIndent()
+                } else {
+                    """
+                    📊 Highest Spending Category ($monthLabel):
+                    • Top Category: ${topCategory.key}
+                    • Total Spent: ${topCategory.value.rp()} ($topPct% of total expenses)
+
+                    💡 AI Tip: Set a budget limit for ${topCategory.key} in the Budget menu!
+                    """.trimIndent()
+                }
+            } else {
+                if (id) "Belum ada data pengeluaran di bulan ini untuk dianalisis." else "No expense records found for this month yet."
+            }
+        }
+
+        p.contains("budget") || p.contains("sisa") || p.contains("balance") -> {
+            val budgetSummary = if (budgets.isNotEmpty()) {
+                budgets.joinToString("\n") { b ->
+                    val spent = categoryTotals[b.category] ?: 0L
+                    val pct = if (b.limit > 0) (spent * 100 / b.limit) else 0
+                    "• ${b.category}: ${spent.rp()} / ${b.limit.rp()} ($pct%)"
+                }
+            } else {
+                if (id) "Belum ada budget yang diatur." else "No budget targets set."
+            }
+
+            if (id) {
+                """
+                💰 Pemeriksaan Saldo & Budget ($monthLabel):
+                • Sisa Saldo: ${balance.rp()}
+
+                📌 Status Budget:
+                $budgetSummary
+                """.trimIndent()
+            } else {
+                """
+                💰 Balance & Budget Check ($monthLabel):
+                • Remaining Balance: ${balance.rp()}
+
+                📌 Budget Status:
+                $budgetSummary
+                """.trimIndent()
+            }
+        }
+
+        else -> {
+            if (id) {
+                """
+                💡 Analisis Keuangan Hemat AI:
+                • Saldo aktif: ${balance.rp()}
+                • Total transaksi bulan ini: ${monthTx.size} transaksi
+                ${topCategory?.let { "• Pengeluaran terbanyak ada pada kategori ${it.key} (${it.value.rp()})." } ?: ""}
+
+                🎯 Tips Hemat Hari Ini:
+                1. Prioritaskan kebutuhan pokok sebelum keinginan.
+                2. Manfaatkan fitur Multi-Kategori saat mencatat transaksi.
+                3. Pantau batas budget bulanan agar tidak overbudget!
+                """.trimIndent()
+            } else {
+                """
+                💡 Hemat AI Financial Insight:
+                • Active Balance: ${balance.rp()}
+                • Total Transactions: ${monthTx.size} items
+                ${topCategory?.let { "• Highest expense category is ${it.key} (${it.value.rp()})." } ?: ""}
+
+                🎯 Smart Saving Tips:
+                1. Prioritize essentials before desires.
+                2. Use Multi-Category feature when recording expenses.
+                3. Monitor monthly budget limits to avoid overspending!
+                """.trimIndent()
+            }
+        }
     }
 }
 

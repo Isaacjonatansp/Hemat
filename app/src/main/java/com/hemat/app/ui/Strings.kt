@@ -54,6 +54,15 @@ object T {
             "pct" -> if (id) "Persentase" else "Percentage"
             "no_data_chart" -> if (id) "Belum ada data transaksi di bulan ini" else "No transaction data for this month"
             "filter_category" -> if (id) "Filter Kategori" else "Filter Category"
+            "ai_chat" -> if (id) "AI Chat" else "AI Chat"
+            "ai_assistant_title" -> if (id) "Hemat AI • Asisten Keuangan" else "Hemat AI • Financial Assistant"
+            "ai_subtitle" -> if (id) "Analisis keuangan otomatis & tips hemat" else "Automatic financial analysis & saving tips"
+            "ai_placeholder" -> if (id) "Tulis pertanyaan keuangan..." else "Type a financial question..."
+            "ai_send" -> if (id) "Kirim" else "Send"
+            "ai_clear_chat" -> if (id) "Bersihkan Chat" else "Clear Chat"
+            "ai_welcome" -> if (id) "Halo! Saya Hemat AI, asisten keuangan pribadimu. Ada yang bisa saya bantu untuk analisis pengeluaran atau tips hemat bulan ini?" else "Hello! I am Hemat AI, your personal financial assistant. How can I help analyze your spending or savings this month?"
+            "multi_cat_hint" -> if (id) "Dapat memilih lebih dari 1 kategori" else "Can select more than 1 category"
+            "selected_categories" -> if (id) "Kategori Terpilih" else "Selected Categories"
             else -> key
         }
     }
