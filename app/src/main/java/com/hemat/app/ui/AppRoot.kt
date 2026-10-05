@@ -115,6 +115,7 @@ import androidx.core.content.FileProvider
 import com.hemat.app.data.local.BudgetEntity
 import com.hemat.app.data.local.TransactionEntity
 import com.hemat.app.ui.theme.HematTheme
+import com.hemat.app.util.AiService
 import com.hemat.app.util.ReceiptScanner
 import kotlinx.coroutines.launch
 import java.io.File
@@ -1471,9 +1472,18 @@ private fun SettingsScreen(vm: HomeViewModel, lang: String) {
     var newCatName by remember { mutableStateOf("") }
     var newCatKind by remember { mutableStateOf("OUT") }
 
+    val currentProvider by vm.aiProvider.collectAsState()
+    val currentApiKey by vm.apiKey.collectAsState()
+
+    var selectedProvider by remember(currentProvider) { mutableStateOf(currentProvider) }
+    var apiKeyText by remember(currentApiKey) { mutableStateOf(currentApiKey) }
+    var showAiSavedToast by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .imePadding()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -1504,6 +1514,93 @@ private fun SettingsScreen(vm: HomeViewModel, lang: String) {
                         onClick = { vm.setLang("en") },
                         shape = SegmentedButtonDefaults.itemShape(1, 2),
                         label = { Text("English", fontWeight = FontWeight.Medium) }
+                    )
+                }
+            }
+        }
+
+        // AI Engine & API Key Settings Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    T.s(lang, "ai_settings"),
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                Text(
+                    T.s(lang, "ai_engine"),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = selectedProvider == "local",
+                        onClick = { selectedProvider = "local" },
+                        shape = SegmentedButtonDefaults.itemShape(0, 3),
+                        label = { Text("Local", fontWeight = FontWeight.Medium) }
+                    )
+                    SegmentedButton(
+                        selected = selectedProvider == "gemini",
+                        onClick = { selectedProvider = "gemini" },
+                        shape = SegmentedButtonDefaults.itemShape(1, 3),
+                        label = { Text("Gemini", fontWeight = FontWeight.Medium) }
+                    )
+                    SegmentedButton(
+                        selected = selectedProvider == "openai",
+                        onClick = { selectedProvider = "openai" },
+                        shape = SegmentedButtonDefaults.itemShape(2, 3),
+                        label = { Text("OpenAI", fontWeight = FontWeight.Medium) }
+                    )
+                }
+
+                Text(
+                    when (selectedProvider) {
+                        "gemini" -> T.s(lang, "ai_gemini_desc")
+                        "openai" -> T.s(lang, "ai_openai_desc")
+                        else -> T.s(lang, "ai_local_desc")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (selectedProvider != "local") {
+                    OutlinedTextField(
+                        value = apiKeyText,
+                        onValueChange = { apiKeyText = it; showAiSavedToast = false },
+                        label = { Text(T.s(lang, "api_key_label")) },
+                        placeholder = { Text(T.s(lang, "api_key_hint")) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        vm.setAiSettings(selectedProvider, apiKeyText)
+                        showAiSavedToast = true
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(T.s(lang, "save"), fontWeight = FontWeight.Bold)
+                }
+
+                if (showAiSavedToast) {
+                    Text(
+                        T.s(lang, "ai_saved"),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -1655,6 +1752,9 @@ private fun ChatAiScreen(vm: HomeViewModel, lang: String) {
     val budgets by vm.budgets.collectAsState()
     val monthLabel by vm.monthLabel.collectAsState()
 
+    val aiProvider by vm.aiProvider.collectAsState()
+    val apiKey by vm.apiKey.collectAsState()
+
     val messages = remember {
         mutableStateListOf(
             ChatMessage(
@@ -1665,6 +1765,7 @@ private fun ChatAiScreen(vm: HomeViewModel, lang: String) {
     }
 
     var inputText by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
     val listState = rememberScrollState()
 
     val quickPrompts = if (lang == "id") listOf(
@@ -1681,11 +1782,12 @@ private fun ChatAiScreen(vm: HomeViewModel, lang: String) {
 
     fun sendPrompt(userText: String) {
         if (userText.isBlank()) return
-        messages.add(ChatMessage(isAi = false, text = userText.trim()))
+        val userPrompt = userText.trim()
+        messages.add(ChatMessage(isAi = false, text = userPrompt))
         inputText = ""
 
-        val aiResponse = generateAiFinancialResponse(
-            prompt = userText,
+        val localResponse = generateAiFinancialResponse(
+            prompt = userPrompt,
             monthTx = monthTx,
             sumIn = sumIn,
             sumOut = sumOut,
@@ -1693,7 +1795,40 @@ private fun ChatAiScreen(vm: HomeViewModel, lang: String) {
             monthLabel = monthLabel,
             lang = lang
         )
-        messages.add(ChatMessage(isAi = true, text = aiResponse))
+
+        if (aiProvider != "local" && apiKey.isNotBlank()) {
+            val placeholderId = UUID.randomUUID().toString()
+            messages.add(
+                ChatMessage(
+                    id = placeholderId,
+                    isAi = true,
+                    text = if (lang == "id") "⏳ Menghubungi $aiProvider API..." else "⏳ Connecting to $aiProvider API..."
+                )
+            )
+
+            scope.launch {
+                val systemContext = """
+                You are Hemat AI, a financial assistant in an Android budgeting app.
+                Current Financial Context ($monthLabel):
+                $localResponse
+                """.trimIndent()
+
+                val remoteResponse = AiService.fetchAiResponse(
+                    provider = aiProvider,
+                    apiKey = apiKey,
+                    systemContext = systemContext,
+                    userPrompt = userPrompt
+                )
+
+                val idx = messages.indexOfFirst { it.id == placeholderId }
+                if (idx != -1) {
+                    val finalMsg = remoteResponse ?: "$localResponse\n\n*(Catatan: Gagal terhubung ke $aiProvider API. Menampilkan hasil analisis lokal)*"
+                    messages[idx] = ChatMessage(id = placeholderId, isAi = true, text = finalMsg)
+                }
+            }
+        } else {
+            messages.add(ChatMessage(isAi = true, text = localResponse))
+        }
     }
 
     Column(

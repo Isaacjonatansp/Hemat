@@ -24,6 +24,12 @@ class HomeViewModel(
     val lang = langStore.lang
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "id")
 
+    val apiKey = langStore.apiKey
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    val aiProvider = langStore.aiProvider
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "local")
+
     val monthOffset = MutableStateFlow(0)
 
     val monthLabel: StateFlow<String> = combine(monthOffset, lang) { offset, l ->
@@ -87,5 +93,9 @@ class HomeViewModel(
 
     fun setLang(code: String) {
         viewModelScope.launch { langStore.set(code) }
+    }
+
+    fun setAiSettings(provider: String, key: String) {
+        viewModelScope.launch { langStore.setAiSettings(provider, key) }
     }
 }

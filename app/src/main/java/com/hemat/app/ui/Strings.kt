@@ -63,6 +63,14 @@ object T {
             "ai_welcome" -> if (id) "Halo! Saya Hemat AI, asisten keuangan pribadimu. Ada yang bisa saya bantu untuk analisis pengeluaran atau tips hemat bulan ini?" else "Hello! I am Hemat AI, your personal financial assistant. How can I help analyze your spending or savings this month?"
             "multi_cat_hint" -> if (id) "Dapat memilih lebih dari 1 kategori" else "Can select more than 1 category"
             "selected_categories" -> if (id) "Kategori Terpilih" else "Selected Categories"
+            "ai_settings" -> if (id) "Pengaturan Mesin AI (Gemini / OpenAI)" else "AI Engine Settings (Gemini / OpenAI)"
+            "ai_engine" -> if (id) "Pilih Penyedia AI" else "Select AI Provider"
+            "ai_local_desc" -> if (id) "Lokal (Bawaan HP • Tanpa API Key • Offline)" else "Local (Default • No API Key • Offline)"
+            "ai_gemini_desc" -> if (id) "Google Gemini API (Butuh API Key)" else "Google Gemini API (Requires API Key)"
+            "ai_openai_desc" -> if (id) "OpenAI GPT API (Butuh API Key)" else "OpenAI GPT API (Requires API Key)"
+            "api_key_label" -> if (id) "Kunci API (API Key)" else "API Key"
+            "api_key_hint" -> if (id) "Tempel API Key di sini..." else "Paste API Key here..."
+            "ai_saved" -> if (id) "Pengaturan AI disimpan!" else "AI settings saved!"
             else -> key
         }
     }
